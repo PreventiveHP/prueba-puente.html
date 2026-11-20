@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prueba Puente ntfy - Sender / Receptor</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 680px; margin: 24px auto; padding: 0 16px; background: #f5f7fa; color: #1f2937; }
+    .card { background: #fff; border: 1px solid #d1d5db; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    label { display: block; font-weight: bold; margin-top: 10px; margin-bottom: 4px; }
+    input, textarea, button { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid #9ca3af; font-size: 15px; }
+    button { background: #111827; color: #fff; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    button.secondary { background: #2563eb; }
+    .row { display: flex; gap: 8px; }
+    .row button { width: auto; flex: 1; }
+    #log { background: #111827; color: #e5e7eb; padding: 12px; border-radius: 8px; min-height: 120px; white-space: pre-wrap; font-family: monospace; font-size: 13px; }
+    .status { font-weight: bold; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Prueba Aislada: Sender + Receptor por ntfy</h2>
+
+  <div class="card">
+    <label for="serverUrl">Servidor HTTPS (ntfy)</label>
+    <input id="serverUrl" type="text" value="https://155.138.201.104.sslip.io" />
+
+    <label for="pairCode">Código único de emparejamiento (Sender ↔ Receptor)</label>
+    <div class="row">
+      <input id="pairCode" type="text" value="rescue-demo-101" />
+      <button type="button" class="secondary" onclick="genCode()">Generar código</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>1. Modo Receptor (escucha en vivo)</h3>
+    <button type="button" class="secondary" onclick="startListen()">Conectar Receptor a este código</button>
+    <div id="status" class="status">Estado: Desconectado</div>
+    <label>Mensajes recibidos</label>
+    <div id="log">Esperando conexión...</div>
+  </div>
+
+  <div class="card">
+    <h3>2. Modo Sender (envía alerta de prueba)</h3>
+    <label for="alertMsg">Mensaje de alerta</label>
+    <textarea id="alertMsg" rows="2">Alerta de prueba desde Sender</textarea>
+    <button type="button" onclick="sendAlert()">Enviar al código</button>
+  </div>
+
+  <script>
+    let eventSource = null;
+
+    function getTopicUrl() {
+      const base = document.getElementById("serverUrl").value.trim().replace(/\/+$/, "");
+      const code = encodeURIComponent(document.getElementById("pairCode").value.trim());
+      return `${base}/${code}`;
+    }
+
+    function genCode() {
+      const rnd = Math.floor(100000 + Math.random() * 900000);
+      document.getElementById("pairCode").value = `mc-${rnd}`;
+    }
+
+    function logMsg(text) {
+      const box = document.getElementById("log");
+      const now = new Date().toLocaleTimeString();
+      box.textContent += `\n[${now}] ${text}`;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function startListen() {
+      const code = document.getElementById("pairCode").value.trim();
+      if (!code) return alert("Escribe un código primero.");
+      if (eventSource) eventSource.close();
+
+      const sseUrl = `${getTopicUrl()}/sse`;
+      document.getElementById("status").textContent = `Estado: Escuchando "${code}"...`;
+      logMsg(`Conectando receptor a ${sseUrl}`);
+
+      eventSource = new EventSource(sseUrl);
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === "message") {
+            logMsg(`RECIBIDO: ${data.message}`);
+          }
+        } catch (e) {
+          logMsg(`RECIBIDO: ${event.data}`);
+        }
+      };
+      eventSource.onerror = () => {
+        document.getElementById("status").textContent = "Estado: Error o reconectando (revisa red/HTTPS)";
+      };
+    }
+
+    async function sendAlert() {
+      const code = document.getElementById("pairCode").value.trim();
+      const msg = document.getElementById("alertMsg").value.trim();
+      if (!code || !msg) return alert("Falta código o mensaje.");
+
+      try {
+        const res = await fetch(getTopicUrl(), {
+          method: "POST",
+          body: msg
+        });
+        if (res.ok) {
+          logMsg(`ENVIADO a "${code}": ${msg}`);
+        } else {
+          logMsg(`Error al enviar (HTTP ${res.status})`);
+        }
+      } catch (err) {
+        logMsg(`Fallo de red al enviar: ${err.message}`);
+      }
+    }
+  </script>
+</body>
+</html>
